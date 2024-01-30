@@ -15,6 +15,8 @@ from bluetooth_sensor_state_data import BluetoothData
 from home_assistant_bluetooth import BluetoothServiceInfo
 from sensor_state_data import SensorLibrary
 
+from .events import EventDeviceKeys, EventTypeKeys
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -506,6 +508,54 @@ class GoveeBluetoothDeviceData(BluetoothData):
             self.update_predefined_sensor(SensorLibrary.HUMIDITY__PERCENTAGE, humi)
             self.update_predefined_sensor(
                 SensorLibrary.PM25__CONCENTRATION_MICROGRAMS_PER_CUBIC_METER, pm25
+            )
+            return
+
+        if msg_length == 24 and (
+            "GV5122" in local_name
+            or "GV5126" in local_name
+            or mgr_id == 0xeEF88
+        ):
+            # H5122 - GoveeLife Smart Mini Single Button Switch
+            # H5126 - GoveeLife Smart Mini Double Button Switch
+            #
+            # The local_name will contain "GV5122" or "GV5126",
+            # and then 4 hex characters indicating the last 2 fields of the
+            # Bluetooth address of the device/button.
+            #
+            # For example: "GV51261234"  (*:12:34)
+            #
+            # The payload that comes in, is 24 bytes in length.
+            #
+            # The first 2 bytes is the unique ID of the device.
+            # The next 4 bytes is the uptime value of the device in ms.
+            #     (It will roll over in about 49 days)
+            #
+            # The rest of the payload appears to be encrypted.
+            #
+            # The working theory I have right now, is that
+            # the key must be exchanged during the pairing
+            # process that the manual talks about.
+            # (Press and hold the button for 5 seconds until the
+            # red light blinks continuously)
+            # Presumably, inside of the encrypted packet, is both the
+            # battery level and the indication of which button was pressed.
+            _LOGGER.debug("Encrypted Data payload: %s", (data[6:].hex(' ')))
+
+            if "GV5122" in local_name:
+                self.set_device_type("H5122")
+                self.set_device_name(f"H5122 {short_address(address)}")
+            elif "GV5126" in local_name:
+                self.set_device_type("H5126")
+                self.set_device_name(f"H5126 {short_address(address)}")
+            else:
+                self.set_device_type("H512X")
+                self.set_device_name(f"H512X {short_address(address)}")
+
+            self.fire_event(
+                key=EventDeviceKeys.BUTTON,
+                event_type=EventTypeKeys.PRESS,
+                event_properties=None,
             )
             return
 
